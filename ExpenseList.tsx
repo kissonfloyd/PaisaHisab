@@ -1,0 +1,191 @@
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  Alert,
+  Image,
+} from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import { useBudget } from '../context/BudgetContext';
+import { Colors } from '../constants/Colors';
+import { formatCurrency, formatDateNepali } from '../utils/helpers';
+import { ExpenseCategories, Expense } from '../types';
+import ReceiptViewer from './ReceiptViewer';
+import { getImageDisplayUri } from '../utils/photoUtils';
+
+const ExpenseList: React.FC = () => {
+  const { currentBudget, expenses, deleteExpense } = useBudget();
+  const [selectedReceipt, setSelectedReceipt] = useState<{
+    photo: string;
+    description: string;
+  } | null>(null);
+
+  const currentExpenses = expenses.filter(
+    expense => expense.budgetId === currentBudget?.id
+  ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const handleDeleteExpense = (expense: Expense) => {
+    Alert.alert(
+      'खर्च मेटाउनुहोस्',
+      `के तपाईं "${expense.description}" खर्च मेटाउन चाहनुहुन्छ?`,
+      [
+        {
+          text: 'रद्द गर्नुहोस्',
+          style: 'cancel',
+        },
+        {
+          text: 'मेटाउनुहोस्',
+          style: 'destructive',
+          onPress: () => deleteExpense(expense.id),
+        },
+      ]
+    );
+  };
+
+  const getCategoryIcon = (category: string) => {
+    const iconMap: Record<string, string> = {
+      food: 'restaurant',
+      transport: 'directions-car',
+      entertainment: 'movie',
+      shopping: 'shopping-bag',
+      bills: 'receipt',
+      other: 'category',
+    };
+    return iconMap[category] || 'category';
+  };
+
+
+
+  if (!currentBudget) {
+    return null;
+  }
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.header}>
+        <Text style={styles.cardTitle}>हालका खर्चहरू</Text>
+        <Text style={styles.expenseCount}>
+          कुल: {currentExpenses.length} खर्च
+        </Text>
+      </View>
+
+      {currentExpenses.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Icon name="receipt-long" size={40} color={Colors.textLight} />
+          <Text style={styles.emptyTitle}>कुनै खर्च छैन</Text>
+          <Text style={styles.emptyDescription}>
+            तपाईंको पहिलो खर्च थप्नुहोस्
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={currentExpenses}
+          renderItem={renderExpenseItem}
+          keyExtractor={(item) => item.id}
+          showsVerticalScrollIndicator={false}
+          scrollEnabled={false}
+        />
+      )}
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  card: {
+    backgroundColor: Colors.surface,
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.text,
+  },
+  expenseCount: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.textSecondary,
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  emptyDescription: {
+    fontSize: 14,
+    color: Colors.textLight,
+    textAlign: 'center',
+  },
+  expenseItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.lightGray,
+  },
+  expenseIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: `${Colors.primary}15`,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  expenseDetails: {
+    flex: 1,
+  },
+  expenseDescription: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text,
+    marginBottom: 4,
+  },
+  expenseMetadata: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  expenseCategory: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  expenseDate: {
+    fontSize: 12,
+    color: Colors.textLight,
+  },
+  expenseActions: {
+    alignItems: 'flex-end',
+  },
+  expenseAmount: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: Colors.error,
+    marginBottom: 4,
+  },
+  deleteButton: {
+    padding: 4,
+  },
+});
+
+export default ExpenseList;

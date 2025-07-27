@@ -1,0 +1,100 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Setup Java JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Install dependencies
+      run: |
+        cd react-native
+        npm ci
+
+    - name: Generate Release Keystore
+      run: |
+        cd react-native/android/app
+        keytool -genkey -v -keystore smartbudget-release-key.keystore -alias smartbudget-release -keyalg RSA -keysize 2048 -validity 10000 -storepass ${{ secrets.KEYSTORE_PASSWORD || 'smartbudget123' }} -keypass ${{ secrets.KEY_PASSWORD || 'smartbudget123' }} -dname "CN=Smart Budget Tracker, OU=KissonFloyd, O=Smart Budget, L=Kathmandu, ST=Bagmati, C=NP"
+
+    - name: Build Release APK
+      run: |
+        cd react-native/android
+        chmod +x gradlew
+        ./gradlew assembleRelease
+
+    - name: Build Release AAB
+      run: |
+        cd react-native/android
+        ./gradlew bundleRelease
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          react-native/android/app/build/outputs/apk/release/app-release.apk
+          react-native/android/app/build/outputs/bundle/release/app-release.aab
+        name: Smart Budget Tracker v${{ github.event.inputs.version || github.ref_name }}
+        body: |
+          ## Smart Budget Tracker Release
+          
+          ### 📱 Download Files
+          - **app-release.aab** - Upload this to Google Play Store
+          - **app-release.apk** - Use this for testing on Android devices
+          
+          ### ✨ Features Included
+          - Complete budget management system
+          - Expense tracking with receipt photo uploads
+          - Nepali language localization
+          - Offline-first data storage
+          - Premium monetization system
+          - Analytics and insights
+          
+          ### 📋 Google Play Store Information
+          - **Package Name:** com.smartbudgettracker
+          - **Version:** ${{ github.event.inputs.version || github.ref_name }}
+          - **Target SDK:** 34 (Android 14)
+          - **Min SDK:** 21 (Android 5.0)
+          - **Category:** Finance
+          - **Content Rating:** Everyone
+          
+          ### 🚀 Deployment Steps
+          1. Download the `app-release.aab` file
+          2. Go to [Google Play Console](https://play.google.com/console)
+          3. Create a new app or update existing one
+          4. Upload the AAB file to Production track
+          5. Complete store listing with Nepali content
+          6. Submit for review
+          
+          Ready for immediate Google Play Store deployment!
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
