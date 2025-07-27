@@ -1,0 +1,244 @@
+name: Build Smart Budget Tracker APK/AAB
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+        - apk
+        - aab  
+        - both
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Setup Java JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Install Gradle
+      run: |
+        wget https://services.gradle.org/distributions/gradle-8.0.1-bin.zip
+        unzip gradle-8.0.1-bin.zip
+        sudo mv gradle-8.0.1 /opt/gradle
+        echo "/opt/gradle/bin" >> $GITHUB_PATH
+
+    - name: Install React Native CLI
+      run: npm install -g @react-native-community/cli
+
+    - name: Install dependencies
+      run: |
+        npm cache clean --force
+        npm install
+
+    - name: Create complete Android project structure
+      run: |
+        echo "Creating complete Android project structure..."
+        
+        # Create all necessary directories
+        mkdir -p android/app/src/main/java/com/smartbudgettracker
+        mkdir -p android/app/src/main/res/values
+        
+        # Create root build.gradle
+        cat > android/build.gradle << 'EOF'
+buildscript {
+    ext {
+        buildToolsVersion = "34.0.0"
+        minSdkVersion = 21
+        compileSdkVersion = 34
+        targetSdkVersion = 34
+        ndkVersion = "25.1.8937393"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.1.1'
+        classpath 'com.facebook.react:react-native-gradle-plugin'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url "https://www.jitpack.io" }
+        maven { url "https://maven.google.com" }
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}
+EOF
+
+        # Create app build.gradle
+        cat > android/app/build.gradle << 'EOF'
+apply plugin: "com.android.application"
+apply plugin: "com.facebook.react"
+
+android {
+    ndkVersion rootProject.ext.ndkVersion
+    compileSdkVersion rootProject.ext.compileSdkVersion
+
+    namespace "com.smartbudgettracker"
+    defaultConfig {
+        applicationId "com.smartbudgettracker"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+    }
+    
+    signingConfigs {
+        release {
+            storeFile file('smartbudget-upload-key.keystore')
+            storePassword 'smartbudget123'
+            keyAlias 'smartbudget-upload'
+            keyPassword 'smartbudget123'
+        }
+    }
+    
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+        }
+    }
+}
+
+dependencies {
+    implementation 'com.facebook.react:react-android'
+    implementation 'androidx.appcompat:appcompat:1.4.2'
+}
+EOF
+
+        # Create settings.gradle
+        cat > android/settings.gradle << 'EOF'
+rootProject.name = 'SmartBudgetTracker'
+include ':app'
+EOF
+
+        # Create gradle.properties
+        cat > android/gradle.properties << 'EOF'
+org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m
+android.useAndroidX=true
+android.enableJetifier=true
+EOF
+
+        # Create AndroidManifest.xml
+        cat > android/app/src/main/AndroidManifest.xml << 'EOF'
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.smartbudgettracker">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
+    <application
+        android:name=".MainApplication"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:theme="@style/AppTheme">
+        <activity
+            android:name=".MainActivity"
+            android:label="@string/app_name"
+            android:launchMode="singleTop"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+EOF
+
+        # Create strings.xml
+        cat > android/app/src/main/res/values/strings.xml << 'EOF'
+<resources>
+    <string name="app_name">Smart Budget Tracker</string>
+</resources>
+EOF
+
+        # Create styles.xml
+        cat > android/app/src/main/res/values/styles.xml << 'EOF'
+<resources>
+    <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+    </style>
+</resources>
+EOF
+
+        echo "Android project structure created successfully"
+
+    - name: Generate keystore
+      run: |
+        cd android/app
+        keytool -genkeypair -v -storetype PKCS12 -keystore smartbudget-upload-key.keystore -alias smartbudget-upload -keyalg RSA -keysize 2048 -validity 10000 -storepass smartbudget123 -keypass smartbudget123 -dname "CN=Smart Budget Tracker, OU=KissonFloyd, O=Smart Budget, L=Kathmandu, ST=Bagmati, C=NP"
+
+    - name: Build APK
+      if: ${{ github.event.inputs.build_type == 'apk' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+      run: |
+        cd android
+        gradle assembleRelease
+
+    - name: Build AAB
+      if: ${{ github.event.inputs.build_type == 'aab' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+      run: |
+        cd android
+        gradle bundleRelease
+
+    - name: Upload APK
+      if: ${{ github.event.inputs.build_type == 'apk' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: smart-budget-tracker-apk
+        path: android/app/build/outputs/apk/release/app-release.apk
+
+    - name: Upload AAB
+      if: ${{ github.event.inputs.build_type == 'aab' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: smart-budget-tracker-aab
+        path: android/app/build/outputs/bundle/release/app-release.aab
+
+    - name: Build Summary
+      run: |
+        echo "## 🎉 Build Complete!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Your Smart Budget Tracker has been successfully built!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📱 Download Files:" >> $GITHUB_STEP_SUMMARY
+        echo "- **APK**: For testing on Android devices" >> $GITHUB_STEP_SUMMARY
+        echo "- **AAB**: For Google Play Store upload" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🚀 Next Steps:" >> $GITHUB_STEP_SUMMARY
+        echo "1. Download the AAB file from Artifacts above" >> $GITHUB_STEP_SUMMARY
+        echo "2. Upload to Google Play Console" >> $GITHUB_STEP_SUMMARY
+        echo "3. Your app is ready for store deployment!" >> $GITHUB_STEP_SUMMARY
