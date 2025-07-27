@@ -56,25 +56,73 @@ jobs:
         npm cache clean --force
         npm install
 
-    - name: Initialize React Native project if Android missing
+    - name: Reorganize files into React Native structure
       run: |
-        if [ ! -d "android" ]; then
-          echo "Android folder not found. Creating complete React Native project..."
-          # Create a temporary React Native project
-          npx react-native@latest init SmartBudgetTemp --version latest
-          # Copy Android build files to current directory
-          if [ -d "SmartBudgetTemp/android" ]; then
-            cp -r SmartBudgetTemp/android ./
-            echo "Copied Android build structure"
-          fi
-          # Update Android project configuration
-          if [ -f "android/app/build.gradle" ]; then
-            sed -i 's/com.smartbudgettemp/com.smartbudgettracker/g' android/app/build.gradle
-            echo "Updated Android package name"
-          fi
-          # Clean up temporary project
-          rm -rf SmartBudgetTemp
+        echo "Reorganizing files into proper React Native project structure..."
+        
+        # Create Android project structure
+        mkdir -p android/app/src/main/java/com/smartbudgettracker
+        mkdir -p android/gradle/wrapper
+        
+        # Move Android build files to correct locations
+        if [ -f "build.gradle" ]; then
+          mv build.gradle android/app/build.gradle
         fi
+        if [ -f "gradle.properties" ]; then
+          mv gradle.properties android/gradle.properties
+        fi
+        if [ -f "settings.gradle" ]; then
+          mv settings.gradle android/settings.gradle
+        fi
+        if [ -f "AndroidManifest.xml" ]; then
+          mv AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+        fi
+        
+        # Create basic Android project files if missing
+        if [ ! -f "android/build.gradle" ]; then
+          cat > android/build.gradle << 'EOF'
+buildscript {
+    ext {
+        buildToolsVersion = "34.0.0"
+        minSdkVersion = 21
+        compileSdkVersion = 34
+        targetSdkVersion = 34
+        ndkVersion = "25.1.8937393"
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.1.1")
+    }
+}
+
+apply plugin: "com.android.application"
+apply plugin: "com.facebook.react"
+
+android {
+    ndkVersion rootProject.ext.ndkVersion
+    compileSdkVersion rootProject.ext.compileSdkVersion
+    
+    defaultConfig {
+        applicationId "com.smartbudgettracker"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+        }
+    }
+}
+
+dependencies {
+    implementation "com.facebook.react:react-native:+"
+}
+EOF
+        fi
+        
+        echo "Project structure reorganized successfully"
 
     - name: Create gradle wrapper if missing
       run: |
