@@ -1,0 +1,171 @@
+name: Build Android APK/AAB - Fixed
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type (apk or aab)'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+        - apk
+        - aab  
+        - both
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Setup Java JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Install React Native CLI
+      run: npm install -g @react-native-community/cli
+
+    - name: Install dependencies
+      run: |
+        npm cache clean --force
+        npm install
+
+    - name: Reorganize files into React Native structure
+      run: |
+        echo "Reorganizing files into proper React Native project structure..."
+        mkdir -p android/app/src/main/java/com/smartbudgettracker
+        mkdir -p android/gradle/wrapper
+        
+        # Move Android build files to correct locations
+        if [ -f "build.gradle" ]; then mv build.gradle android/app/build.gradle; fi
+        if [ -f "gradle.properties" ]; then mv gradle.properties android/gradle.properties; fi
+        if [ -f "settings.gradle" ]; then mv settings.gradle android/settings.gradle; fi
+        if [ -f "AndroidManifest.xml" ]; then mv AndroidManifest.xml android/app/src/main/AndroidManifest.xml; fi
+
+    - name: Setup complete Android project structure
+      run: |
+        # Create all necessary Android build files
+        cat > android/build.gradle << 'EOF'
+buildscript {
+    ext {
+        buildToolsVersion = "34.0.0"
+        minSdkVersion = 21
+        compileSdkVersion = 34
+        targetSdkVersion = 34
+        ndkVersion = "25.1.8937393"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.1.1")
+        classpath("com.facebook.react:react-native-gradle-plugin")
+    }
+}
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url "https://www.jitpack.io" }
+    }
+}
+EOF
+        
+        cat > android/app/build.gradle << 'EOF'
+apply plugin: "com.android.application"
+apply plugin: "com.facebook.react"
+
+android {
+    ndkVersion rootProject.ext.ndkVersion
+    compileSdkVersion rootProject.ext.compileSdkVersion
+    namespace "com.smartbudgettracker"
+    defaultConfig {
+        applicationId "com.smartbudgettracker"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+    }
+    signingConfigs {
+        release {
+            storeFile file('smartbudget-upload-key.keystore')
+            storePassword 'smartbudget123'
+            keyAlias 'smartbudget-upload'
+            keyPassword 'smartbudget123'
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+        }
+    }
+}
+dependencies {
+    implementation "com.facebook.react:react-android"
+}
+EOF
+        
+        # Download and setup actual Gradle
+        cd android
+        curl -L https://services.gradle.org/distributions/gradle-8.0.1-bin.zip -o gradle.zip
+        unzip -q gradle.zip
+        mv gradle-8.0.1 gradle-dist
+        
+        # Create working gradlew script
+        cat > gradlew << 'EOF'
+#!/bin/sh
+GRADLE_HOME="$(dirname "$0")/gradle-dist"
+exec "$GRADLE_HOME/bin/gradle" "$@"
+EOF
+        
+        chmod +x gradlew
+        cd ..
+        echo "Android project setup complete"
+
+    - name: Generate Upload Keystore
+      run: |
+        cd android/app
+        keytool -genkey -v -keystore smartbudget-upload-key.keystore -alias smartbudget-upload -keyalg RSA -keysize 2048 -validity 10000 -storepass smartbudget123 -keypass smartbudget123 -dname "CN=Smart Budget Tracker, OU=KissonFloyd, O=Smart Budget, L=Kathmandu, ST=Bagmati, C=NP"
+
+    - name: Build Release APK
+      if: ${{ github.event.inputs.build_type == 'apk' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+      run: cd android && ./gradlew assembleRelease
+
+    - name: Build Release AAB
+      if: ${{ github.event.inputs.build_type == 'aab' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+      run: cd android && ./gradlew bundleRelease
+
+    - name: Upload APK Artifact
+      if: ${{ github.event.inputs.build_type == 'apk' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: smart-budget-tracker-apk
+        path: android/app/build/outputs/apk/release/app-release.apk
+        retention-days: 30
+
+    - name: Upload AAB Artifact
+      if: ${{ github.event.inputs.build_type == 'aab' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: smart-budget-tracker-aab
+        path: android/app/build/outputs/bundle/release/app-release.aab
+        retention-days: 30
