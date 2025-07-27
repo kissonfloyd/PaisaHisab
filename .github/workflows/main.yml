@@ -56,32 +56,74 @@ jobs:
         npm cache clean --force
         npm install
 
-    - name: Create gradle wrapper if missing
-      working-directory: android
+    - name: Initialize React Native project if Android missing
       run: |
+        if [ ! -d "android" ]; then
+          echo "Android folder not found. Creating complete React Native project..."
+          # Create a temporary React Native project
+          npx react-native@latest init SmartBudgetTemp --version latest
+          # Copy Android build files to current directory
+          if [ -d "SmartBudgetTemp/android" ]; then
+            cp -r SmartBudgetTemp/android ./
+            echo "Copied Android build structure"
+          fi
+          # Update Android project configuration
+          if [ -f "android/app/build.gradle" ]; then
+            sed -i 's/com.smartbudgettemp/com.smartbudgettracker/g' android/app/build.gradle
+            echo "Updated Android package name"
+          fi
+          # Clean up temporary project
+          rm -rf SmartBudgetTemp
+        fi
+
+    - name: Create gradle wrapper if missing
+      run: |
+        if [ ! -d "android" ]; then
+          echo "Android directory still missing, cannot proceed"
+          exit 1
+        fi
+        cd android
         if [ ! -f gradle/wrapper/gradle-wrapper.properties ]; then
           echo "Creating gradle wrapper..."
-          gradle wrapper --gradle-version=8.0.1
+          gradle wrapper --gradle-version=8.0.1 || echo "Gradle wrapper creation failed"
         fi
 
     - name: Make gradlew executable
-      working-directory: android
-      run: chmod +x gradlew
+      run: |
+        if [ -f "android/gradlew" ]; then
+          chmod +x android/gradlew
+        else
+          echo "gradlew not found, skipping"
+        fi
 
     - name: Generate Upload Keystore
-      working-directory: android/app
       run: |
-        keytool -genkey -v -keystore smartbudget-upload-key.keystore -alias smartbudget-upload -keyalg RSA -keysize 2048 -validity 10000 -storepass smartbudget123 -keypass smartbudget123 -dname "CN=Smart Budget Tracker, OU=KissonFloyd, O=Smart Budget, L=Kathmandu, ST=Bagmati, C=NP"
+        if [ -d "android/app" ]; then
+          cd android/app
+          keytool -genkey -v -keystore smartbudget-upload-key.keystore -alias smartbudget-upload -keyalg RSA -keysize 2048 -validity 10000 -storepass smartbudget123 -keypass smartbudget123 -dname "CN=Smart Budget Tracker, OU=KissonFloyd, O=Smart Budget, L=Kathmandu, ST=Bagmati, C=NP"
+        else
+          echo "Android app directory not found, skipping keystore generation"
+        fi
 
     - name: Build Release APK
       if: ${{ github.event.inputs.build_type == 'apk' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
-      working-directory: android
-      run: ./gradlew assembleRelease
+      run: |
+        if [ -f "android/gradlew" ]; then
+          cd android && ./gradlew assembleRelease
+        else
+          echo "Cannot build APK - gradlew not found"
+          exit 1
+        fi
 
     - name: Build Release AAB
       if: ${{ github.event.inputs.build_type == 'aab' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
-      working-directory: android
-      run: ./gradlew bundleRelease
+      run: |
+        if [ -f "android/gradlew" ]; then
+          cd android && ./gradlew bundleRelease
+        else
+          echo "Cannot build AAB - gradlew not found"
+          exit 1
+        fi
 
     - name: Upload APK Artifact
       if: ${{ github.event.inputs.build_type == 'apk' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
