@@ -29,7 +29,6 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-        cache: 'npm'
 
     - name: Setup Java JDK
       uses: actions/setup-java@v4
@@ -54,7 +53,9 @@ jobs:
 
     - name: Install dependencies
       working-directory: react-native
-      run: npm install
+      run: |
+        npm cache clean --force
+        npm install
 
     - name: Create gradle wrapper if missing
       working-directory: react-native/android
